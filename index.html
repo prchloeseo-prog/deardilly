@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>월급 지급명세서 관리</title>
+  <style>
+    :root {
+      --line: #222;
+      --header: #000;
+      --head-text: #fff;
+      --bg: #f4f4f4;
+      --card: #fff;
+      --accent: #0b57d0;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+      background: var(--bg);
+      color: #111;
+    }
+
+    .wrap {
+      max-width: 1400px;
+      margin: 24px auto;
+      padding: 0 16px;
+    }
+
+    .toolbar {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+    }
+
+    .toolbar h1 {
+      margin: 0;
+      font-size: 20px;
+      margin-right: auto;
+    }
+
+    button {
+      border: 0;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      padding: 10px 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: #4a4a4a;
+    }
+
+    .table-wrap {
+      background: var(--card);
+      border-radius: 12px;
+      overflow: auto;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+    }
+
+    table {
+      width: 100%;
+      min-width: 1400px;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      border: 2px solid var(--line);
+      padding: 8px;
+      text-align: center;
+      vertical-align: middle;
+      white-space: nowrap;
+      background: #eaeaea;
+    }
+
+    thead th {
+      background: var(--header);
+      color: var(--head-text);
+      font-size: 28px;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+    }
+
+    tbody td input,
+    tbody td select {
+      width: 100%;
+      padding: 6px;
+      border: 1px solid #bdbdbd;
+      border-radius: 4px;
+      font-size: 16px;
+      text-align: center;
+      background: #fff;
+    }
+
+    td.money strong { font-size: 32px; }
+
+    tfoot td {
+      background: #ddd;
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .small { font-size: 13px; color: #666; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="toolbar">
+      <h1>월급 지급명세서 관리 (월별 저장)</h1>
+      <label>대상 월 <input type="month" id="targetMonth" /></label>
+      <button id="addRowBtn">행 추가</button>
+      <button id="saveBtn" class="secondary">저장</button>
+      <button id="loadBtn" class="secondary">불러오기</button>
+      <button id="csvBtn" class="secondary">CSV 내보내기</button>
+    </div>
+
+    <div class="table-wrap">
+      <table id="payrollTable">
+        <thead>
+          <tr>
+            <th>구분</th>
+            <th>고용형태</th>
+            <th>과세</th>
+            <th>이름</th>
+            <th>급여</th>
+            <th>시급</th>
+            <th>근로일수</th>
+            <th>총근로시간</th>
+            <th>주휴일수</th>
+            <th>주휴시간</th>
+            <th>주휴수당</th>
+            <th>지급총액</th>
+            <th>삭제</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+        <tfoot>
+          <tr>
+            <td colspan="11">총 지급액</td>
+            <td id="grandTotal">0</td>
+            <td>-</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <p class="small">* 총근로시간은 "30시간 40분" 또는 "30.67"(시간) 형식 모두 입력 가능합니다. 주휴수당은 시급 × 주휴시간으로 자동 계산됩니다.</p>
+  </div>
+
+  <script>
+    const STORAGE_KEY = "deardilly-payroll-v1";
+
+    const defaultRows = [
+      { category: "디어커머스", employment: "상시근로자(초단시간근로자)", taxType: "", name: "이주희", salary: 0, hourlyWage: 10500, workDays: 10, totalHours: "30시간 40분", weeklyDays: 0, weeklyHours: 0 },
+      { category: "주식회사 디어딜리", employment: "프리랜서", taxType: "3.3공제전", name: "김유리", salary: 258400, hourlyWage: 0, workDays: 0, totalHours: "", weeklyDays: 0, weeklyHours: 0 },
+      { category: "주식회사 디어딜리", employment: "프리랜서", taxType: "3.3공제전", name: "최유미", salary: 277300, hourlyWage: 0, workDays: 0, totalHours: "", weeklyDays: 0, weeklyHours: 0 },
+      { category: "주식회사 디어딜리", employment: "정규직", taxType: "o", name: "박옥순", salary: 2000000, hourlyWage: 0, workDays: 0, totalHours: "주 30시간", weeklyDays: 0, weeklyHours: 0 },
+      { category: "주식회사 디어딜리", employment: "정규직", taxType: "o", name: "서지현", salary: 400000, hourlyWage: 0, workDays: 0, totalHours: "", weeklyDays: 0, weeklyHours: 0 }
+    ];
+
+    const rowsEl = document.getElementById("rows");
+    const targetMonthEl = document.getElementById("targetMonth");
+
+    function parseHours(value) {
+      if (!value) return 0;
+      const trimmed = String(value).trim();
+      if (/^\d+(\.\d+)?$/.test(trimmed)) return Number(trimmed);
+      const hourMatch = trimmed.match(/(\d+)\s*시간/);
+      const minMatch = trimmed.match(/(\d+)\s*분/);
+      const hours = hourMatch ? Number(hourMatch[1]) : 0;
+      const mins = minMatch ? Number(minMatch[1]) : 0;
+      return hours + mins / 60;
+    }
+
+    const money = (n) => Number(n || 0).toLocaleString("ko-KR");
+
+    function rowTemplate(row, idx) {
+      return `
+      <tr data-idx="${idx}">
+        <td><input name="category" value="${row.category || ""}" /></td>
+        <td>
+          <select name="employment">
+            <option ${row.employment === "상시근로자(초단시간근로자)" ? "selected" : ""}>상시근로자(초단시간근로자)</option>
+            <option ${row.employment === "프리랜서" ? "selected" : ""}>프리랜서</option>
+            <option ${row.employment === "정규직" ? "selected" : ""}>정규직</option>
+            <option ${row.employment === "계약직" ? "selected" : ""}>계약직</option>
+          </select>
+        </td>
+        <td><input name="taxType" value="${row.taxType || ""}" placeholder="예: 3.3공제전" /></td>
+        <td><input name="name" value="${row.name || ""}" /></td>
+        <td><input name="salary" type="number" min="0" value="${row.salary || 0}" /></td>
+        <td><input name="hourlyWage" type="number" min="0" value="${row.hourlyWage || 0}" /></td>
+        <td><input name="workDays" type="number" min="0" value="${row.workDays || 0}" /></td>
+        <td><input name="totalHours" value="${row.totalHours || ""}" placeholder="예: 30시간 40분" /></td>
+        <td><input name="weeklyDays" type="number" min="0" value="${row.weeklyDays || 0}" /></td>
+        <td><input name="weeklyHours" type="number" min="0" step="0.1" value="${row.weeklyHours || 0}" /></td>
+        <td class="money"><strong>${money((row.hourlyWage || 0) * (row.weeklyHours || 0))}</strong></td>
+        <td class="money"><strong>${money((row.salary || 0) + ((row.hourlyWage || 0) * (row.weeklyHours || 0)))}</strong></td>
+        <td><button class="secondary" data-action="delete">삭제</button></td>
+      </tr>`;
+    }
+
+    function gatherRows() {
+      return [...rowsEl.querySelectorAll("tr")].map((tr) => {
+        const get = (name) => tr.querySelector(`[name="${name}"]`).value;
+        return {
+          category: get("category"),
+          employment: get("employment"),
+          taxType: get("taxType"),
+          name: get("name"),
+          salary: Number(get("salary") || 0),
+          hourlyWage: Number(get("hourlyWage") || 0),
+          workDays: Number(get("workDays") || 0),
+          totalHours: get("totalHours"),
+          weeklyDays: Number(get("weeklyDays") || 0),
+          weeklyHours: Number(get("weeklyHours") || 0)
+        };
+      });
+    }
+
+    function render(rows) {
+      rowsEl.innerHTML = rows.map((r, i) => rowTemplate(r, i)).join("");
+      recalc();
+    }
+
+    function recalc() {
+      let sum = 0;
+      [...rowsEl.querySelectorAll("tr")].forEach((tr) => {
+        const salary = Number(tr.querySelector('[name="salary"]').value || 0);
+        const hourlyWage = Number(tr.querySelector('[name="hourlyWage"]').value || 0);
+        const weeklyHours = Number(tr.querySelector('[name="weeklyHours"]').value || 0);
+        const weeklyPay = hourlyWage * weeklyHours;
+        const total = salary + weeklyPay;
+
+        tr.children[10].querySelector("strong").textContent = money(weeklyPay);
+        tr.children[11].querySelector("strong").textContent = money(total);
+        sum += total;
+      });
+      document.getElementById("grandTotal").textContent = money(sum);
+    }
+
+    function saveData() {
+      const payload = {
+        month: targetMonthEl.value,
+        rows: gatherRows()
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      alert("저장되었습니다.");
+    }
+
+    function loadData() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        render(defaultRows);
+        return;
+      }
+      const data = JSON.parse(raw);
+      targetMonthEl.value = data.month || "";
+      render(data.rows || defaultRows);
+    }
+
+    function exportCsv() {
+      const rows = gatherRows();
+      const headers = ["구분","고용형태","과세","이름","급여","시급","근로일수","총근로시간","주휴일수","주휴시간","주휴수당","지급총액"];
+      const lines = [headers.join(",")];
+      rows.forEach((r) => {
+        const weeklyPay = r.hourlyWage * r.weeklyHours;
+        const total = r.salary + weeklyPay;
+        lines.push([
+          r.category,
+          r.employment,
+          r.taxType,
+          r.name,
+          r.salary,
+          r.hourlyWage,
+          r.workDays,
+          r.totalHours,
+          r.weeklyDays,
+          r.weeklyHours,
+          weeklyPay,
+          total
+        ].map(v => `"${String(v).replaceAll('"','""')}"`).join(","));
+      });
+
+      const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `지급명세서_${targetMonthEl.value || "월선택안됨"}.csv`;
+      a.click();
+    }
+
+    document.getElementById("addRowBtn").addEventListener("click", () => {
+      const rows = gatherRows();
+      rows.push({ category: "", employment: "프리랜서", taxType: "", name: "", salary: 0, hourlyWage: 0, workDays: 0, totalHours: "", weeklyDays: 0, weeklyHours: 0 });
+      render(rows);
+    });
+
+    rowsEl.addEventListener("input", recalc);
+    rowsEl.addEventListener("click", (e) => {
+      if (e.target.dataset.action === "delete") {
+        const tr = e.target.closest("tr");
+        tr.remove();
+        recalc();
+      }
+    });
+
+    document.getElementById("saveBtn").addEventListener("click", saveData);
+    document.getElementById("loadBtn").addEventListener("click", loadData);
+    document.getElementById("csvBtn").addEventListener("click", exportCsv);
+
+    // util usage to keep backward compatibility and validate totalHours parsing
+    window.parseHoursForCheck = parseHours;
+
+    render(defaultRows);
+  </script>
+</body>
+</html>
